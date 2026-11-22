@@ -4,58 +4,23 @@ from Script import script
 from time import time
 
 id_pattern = re.compile(r'^.\d+$')
+def is_enabled(value, default): return True if str(value).lower() in ["true", "yes", "1", "enable", "y"] else (False if str(value).lower() in ["false", "no", "0", "disable", "n"] else default)
+def parse_size_to_bytes(value, default=0): return int(float(m.group(1)) * {"": 1, "k": 1024, "m": 1024**2, "g": 1024**3, "t": 1024**4, "p": 1024**5}.get((m.group(2) or "b").rstrip("b"), 1)) if (value is not None and (m := re.fullmatch(r"(\d+(?:\.\d+)?)\s*([kmgtp]?b?)?", str(value).strip().lower()))) else default
 
-def is_enabled(value, default):
-if value.lower() in ["true", "yes", "1", "enable", "y"]:
-return True
-elif value.lower() in ["false", "no", "0", "disable", "n"]:
-return False
-else:
-return default
-
-
-def parse_size_to_bytes(value: str, default: int = 0) -> int:
-if value is None:
-return default
-raw = str(value).strip().lower()
-if not raw:
-return default
-m = re.fullmatch(r"(\d+(?:.\d+)?)\s*([kmgtp]?b?)?", raw)
-if not m:
-return default
-number = float(m.group(1))
-unit = (m.group(2) or "b").rstrip("b")
-scale = {
-"": 1,
-"k": 1024,
-"m": 10242,
-"g": 10243,
-"t": 10244,
-"p": 10245,
-}
-return int(number * scale.get(unit, 1))
-
-
-Bot information
 SESSION = environ.get('SESSION', 'Media_search')
-API_ID = int(environ.get('API_ID', ''))
+API_ID = int(environ.get('API_ID', '0'))
 API_HASH = environ.get('API_HASH', '')
 BOT_TOKEN = environ.get('BOT_TOKEN', '')
 
-Keep-Alive URL
 KEEP_ALIVE_URL = environ.get("KEEP_ALIVE_URL", "https://mzpentertainmentbot.onrender.com/")
-Hyper link
 HYPER_MODE = is_enabled(environ.get('HYPER_MODE', 'False'), False)
-Request fsub
 REQUEST_FSUB_MODE = is_enabled(environ.get('REQUEST_FSUB_MODE', 'True'), True)
 
-Bot settings
 BOT_START_TIME = time()
 CACHE_TIME = int(environ.get('CACHE_TIME', 300))
 USE_CAPTION_FILTER = is_enabled(environ.get('USE_CAPTION_FILTER', 'True'), True)
 PICS = (environ.get('PICS', 'https://graph.org/file/2ed90a79eb533d86f8a0f.jpg')).split()
 
-Admins, Channels & Users
 ADMINS = [int(admin) if id_pattern.search(admin) else admin for admin in environ.get('ADMINS', '').split()]
 CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get('CHANNELS', '').split()]
 auth_users = [int(user) if id_pattern.search(user) else user for user in environ.get('AUTH_USERS', '').split()]
@@ -64,7 +29,6 @@ auth_grp = environ.get('AUTH_GROUP')
 DEFAULT_AUTH_CHANNELS = [int(x) for x in environ.get("AUTH_CHANNEL", "").split() if x.lstrip('-').isdigit()]
 AUTH_GROUPS = [int(ch) for ch in auth_grp.split()] if auth_grp else None
 
-MongoDB information
 DATABASE_URI = environ.get('DATABASE_URI', "")
 DATABASE_NAME = environ.get('DATABASE_NAME', "Cluster0")
 COLLECTION_NAME = environ.get('COLLECTION_NAME', 'mn_files')
@@ -79,21 +43,14 @@ DATABASE_NAME5 = environ.get('DATABASE_NAME5', DATABASE_NAME)
 POSTGRES_URI = environ.get('POSTGRES_URI', '')
 POSTGRES_STORAGE_LIMIT_BYTES = parse_size_to_bytes(environ.get('POSTGRES_STORAGE_LIMIT_BYTES', '1GB'), 0)
 
-File Channel Settings (Disabled so bot sends videos directly in PM)
 FILE_CHANNELS = [int(ch) for ch in environ.get('FILE_CHANNELS', '').split() if ch.lstrip('-').isdigit()]
 FILE_CHANNEL_SENDING_MODE = is_enabled(environ.get('FILE_CHANNEL_SENDING_MODE', 'False'), False)
-FILE_AUTO_DELETE_SECONDS = int(environ.get('FILE_AUTO_DELETE_SECONDS', 600)) # 10 minutes
+FILE_AUTO_DELETE_SECONDS = int(environ.get('FILE_AUTO_DELETE_SECONDS', 600))
 
-Private search guidance (Replace YOUR_GROUP_LINK with your real Telegram Group link)
 PM_SEARCH_GROUP_LINK = environ.get('PM_SEARCH_GROUP_LINK', 'https://t.me/addlist/ueNwQploRbQ1MGM1')
-PM_SEARCH_REDIRECT_TEXT = environ.get(
-'PM_SEARCH_REDIRECT_TEXT',
-'🎬 ဇာတ်ကားရှာဖွေရန် အောက်ပါ Group ထဲတွင် ဇာတ်ကားနာမည် ရိုက်ထည့်ရှာဖွေပါ။\n\n'
-'👇 Group သို့ဝင်ရန်\n{group_link}'
-)
+PM_SEARCH_REDIRECT_TEXT = environ.get('PM_SEARCH_REDIRECT_TEXT', '🎬 ဇာတ်ကားရှာဖွေရန် အောက်ပါ Group ထဲတွင် ဇာတ်ကားနာမည် ရိုက်ထည့်ရှာဖွေပါ။\n\n👇 Group သို့ဝင်ရန်\n{group_link}')
 DELETE_USER_SEARCH_MESSAGE = is_enabled(environ.get('DELETE_USER_SEARCH_MESSAGE', 'False'), False)
 
-Others
 LOG_CHANNEL = int(environ.get('LOG_CHANNEL', '0'))
 SUPPORT_CHAT = environ.get('SUPPORT_CHAT', '')
 P_TTI_SHOW_OFF = is_enabled((environ.get('P_TTI_SHOW_OFF', 'False')), False)
@@ -112,14 +69,3 @@ PROTECT_CONTENT = is_enabled((environ.get('PROTECT_CONTENT', "False")), False)
 PUBLIC_FILE_STORE = is_enabled((environ.get('PUBLIC_FILE_STORE', "False")), True)
 
 LOG_STR = "Current Customized Configurations are:-\n"
-LOG_STR += ("Private movie search messages in PM will be redirected to the configured group link.\n")
-LOG_STR += ("User search messages will be deleted after handling.\n" if DELETE_USER_SEARCH_MESSAGE else "User search messages will be kept after handling.\n")
-LOG_STR += ("IMDB Results are enabled, Bot will be showing imdb details for your queries.\n" if IMDB else "IMDB Results are disabled.\n")
-LOG_STR += ("P_TTI_SHOW_OFF found, Users will be redirected to send /start to Bot PM instead of sending file directly\n" if P_TTI_SHOW_OFF else "P_TTI_SHOW_OFF is disabled files will be sent in PM, instead of sending start.\n")
-LOG_STR += ("SINGLE_BUTTON is Found, filename and file size will be shown in a single button instead of two separate buttons\n" if SINGLE_BUTTON else "SINGLE_BUTTON is disabled, filename and file_size will be shown as different buttons\n")
-LOG_STR += (f"CUSTOM_FILE_CAPTION enabled with value {CUSTOM_FILE_CAPTION}, your files will be sent along with this customized caption.\n" if CUSTOM_FILE_CAPTION else "No CUSTOM_FILE_CAPTION Found, Default captions of file will be used.\n")
-LOG_STR += ("Long IMDB storyline enabled." if LONG_IMDB_DESCRIPTION else "LONG_IMDB_DESCRIPTION is disabled, Plot will be shorter.\n")
-LOG_STR += ("Spell Check Mode Is Enabled, bot will be suggesting related movies if movie not found\n" if SPELL_CHECK_REPLY else "SPELL_CHECK_REPLY Mode disabled\n")
-LOG_STR += (f"MAX_LIST_ELM Found, long list will be shortened to first {MAX_LIST_ELM} elements\n" if MAX_LIST_ELM else "Full List of casts and crew will be shown in imdb template, restrict them by adding a value to MAX_LIST_ELM\n")
-LOG_STR += f"Your current IMDB template is {IMDB_TEMPLATE}"
-
