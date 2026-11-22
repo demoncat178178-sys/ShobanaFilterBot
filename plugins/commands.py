@@ -11,8 +11,27 @@ from pyrogram.errors import ChatAdminRequired, FloodWait
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from database.ia_filterdb import Media, get_file_details, unpack_new_file_id
 from database.users_chats_db import db
-from info import CHANNELS, ADMINS, LOG_CHANNEL, PICS, BATCH_FILE_CAPTION, CUSTOM_FILE_CAPTION, PROTECT_CONTENT, FILE_CHANNELS, FILE_CHANNEL_SENDING_MODE, FILE_AUTO_DELETE_SECONDS
-from utils import get_settings, get_size, is_subscribed, save_group_settings, temp, create_invite_links, get_chat_join_link
+from info import (
+    CHANNELS,
+    ADMINS,
+    LOG_CHANNEL,
+    PICS,
+    BATCH_FILE_CAPTION,
+    CUSTOM_FILE_CAPTION,
+    PROTECT_CONTENT,
+    FILE_CHANNELS,
+    FILE_CHANNEL_SENDING_MODE,
+    FILE_AUTO_DELETE_SECONDS,
+)
+from utils import (
+    get_settings,
+    get_size,
+    is_subscribed,
+    save_group_settings,
+    temp,
+    create_invite_links,
+    get_chat_join_link,
+)
 from database.connections_mdb import active_connection
 from plugins.pm_filter import auto_filter
 
@@ -38,7 +57,9 @@ async def create_file_buttons(client, sent_message):
         if chat.username:
             invite_link = f"https://t.me/{chat.username}"
         else:
-            invite_link = await get_chat_join_link(client, sent_message.chat.id, purpose="file_channel", creates_join_request=False)
+            invite_link = await get_chat_join_link(
+                client, sent_message.chat.id, purpose="file_channel", creates_join_request=False
+            )
 
         if invite_link:
             buttons.append([InlineKeyboardButton("📢 Join Channel", url=invite_link)])
@@ -68,7 +89,16 @@ async def auto_delete_file(client, message, delay):
         logger.error(f"Error deleting file: {e}")
 
 
-async def send_file_to_user(client, user_id, file_id, protect_content_flag, file_name=None, file_size=None, file_caption=None, requester_mention=None):
+async def send_file_to_user(
+    client,
+    user_id,
+    file_id,
+    protect_content_flag,
+    file_name=None,
+    file_size=None,
+    file_caption=None,
+    requester_mention=None,
+):
     try:
         caption = None
         if CUSTOM_FILE_CAPTION:
@@ -76,7 +106,7 @@ async def send_file_to_user(client, user_id, file_id, protect_content_flag, file
                 caption = CUSTOM_FILE_CAPTION.format(
                     file_name=file_name if file_name else "",
                     file_size=file_size if file_size else "",
-                    file_caption=file_caption if file_caption else ""
+                    file_caption=file_caption if file_caption else "",
                 )
             except Exception as e:
                 logger.error(f"Error formatting caption: {e}")
@@ -94,7 +124,7 @@ async def send_file_to_user(client, user_id, file_id, protect_content_flag, file
                 chat_id=channel_id,
                 file_id=file_id,
                 caption=caption,
-                protect_content=protect_content_flag
+                protect_content=protect_content_flag,
             )
             asyncio.create_task(auto_delete_file(client, sent_message, FILE_AUTO_DELETE_SECONDS))
             reply_markup = await create_file_buttons(client, sent_message)
@@ -102,7 +132,7 @@ async def send_file_to_user(client, user_id, file_id, protect_content_flag, file
                 chat_id=user_id,
                 text="**Your file is ready!**\n\nJoin the channel to view your file",
                 protect_content=True,
-                reply_markup=reply_markup
+                reply_markup=reply_markup,
             )
             asyncio.create_task(auto_delete_message(client, user_msg, AUTO_DELETE_SECONDS))
         else:
@@ -142,7 +172,7 @@ async def checksub_callback(client, callback_query):
                 file_name=file_details.file_name if file_details else None,
                 file_size=get_size(file_details.file_size) if file_details else None,
                 file_caption=file_details.caption if file_details else None,
-                requester_mention=callback_query.from_user.mention if callback_query.from_user else None
+                requester_mention=callback_query.from_user.mention if callback_query.from_user else None,
             )
             await callback_query.message.delete()
         except Exception as e:
@@ -151,12 +181,12 @@ async def checksub_callback(client, callback_query):
     else:
         btn = [
             [InlineKeyboardButton("📢 Join Our Channels", url=ADDLIST_URL)],
-            [InlineKeyboardButton("🔄 Try Again", callback_data=data)]
+            [InlineKeyboardButton("🔄 Try Again", callback_data=data)],
         ]
         try:
             await callback_query.edit_message_text(
                 text="**❌ ချန်နယ်များကို Join မလုပ်ရသေးပါ!**\n\nအောက်ပါခလုတ်ကိုနှိပ်ပြီး Join လုပ်ပြီးမှ Try Again ပြန်နှိပ်ပေးပါ။",
-                reply_markup=InlineKeyboardMarkup(btn)
+                reply_markup=InlineKeyboardMarkup(btn),
             )
         except Exception:
             await callback_query.answer("❌ ချန်နယ်ကို အရင် Join ပေးပါ!", show_alert=True)
@@ -170,29 +200,39 @@ async def start(client, message):
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         await message.reply(
-            script.START_TXT.format(message.from_user.mention if message.from_user else message.chat.title, temp.U_NAME, temp.B_NAME),
-            reply_markup=reply_markup
+            script.START_TXT.format(
+                message.from_user.mention if message.from_user else message.chat.title,
+                temp.U_NAME,
+                temp.B_NAME,
+            ),
+            reply_markup=reply_markup,
         )
         await asyncio.sleep(2)
         if not await db.get_chat(message.chat.id):
             total = await client.get_chat_members_count(message.chat.id)
-            await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"))
+            await client.send_message(
+                LOG_CHANNEL,
+                script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"),
+            )
             await db.add_chat(message.chat.id, message.chat.title)
         return
 
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
-        await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
+        await client.send_message(
+            LOG_CHANNEL,
+            script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention),
+        )
 
     if len(message.command) != 2:
-        buttons = [[
-            InlineKeyboardButton('ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘs', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
-        ], [
-            InlineKeyboardButton('ʜᴇʟᴘ', callback_data='help'),
-            InlineKeyboardButton('ᴀʙᴏᴜᴛ', callback_data='about')
-        ], [
-            InlineKeyboardButton('📢 ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs', url=ADDLIST_URL)
-        ]]
+        buttons = [
+            [InlineKeyboardButton('ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘs', url=f'http://t.me/{temp.U_NAME}?startgroup=true')],
+            [
+                InlineKeyboardButton('ʜᴇʟᴘ', callback_data='help'),
+                InlineKeyboardButton('ᴀʙᴏᴜᴛ', callback_data='about'),
+            ],
+            [InlineKeyboardButton('📢 ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs', url=ADDLIST_URL)],
+        ]
         reply_markup = InlineKeyboardMarkup(buttons)
         m = await message.reply_text("MZP Entertainment")
         await asyncio.sleep(1.2)
@@ -201,7 +241,7 @@ async def start(client, message):
             photo=random.choice(PICS),
             caption=script.START_TXT.format(message.from_user.mention, temp.U_NAME, temp.B_NAME),
             reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML
+            parse_mode=enums.ParseMode.HTML,
         )
         return
 
@@ -234,25 +274,25 @@ async def start(client, message):
             chat_id=message.from_user.id,
             text="**ဇာတ်ကားကြည့်ရှုရန် အောက်ပါ Channel များကို အရင် Join ပေးပါ!**",
             reply_markup=InlineKeyboardMarkup(btn),
-            parse_mode=enums.ParseMode.MARKDOWN
+            parse_mode=enums.ParseMode.MARKDOWN,
         )
         return
 
     if len(message.command) == 2 and message.command[1] in ["subscribe", "error", "okay", "help"]:
-        buttons = [[
-            InlineKeyboardButton('ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘs', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
-        ], [
-            InlineKeyboardButton('ʜᴇʟᴘ', callback_data='help'),
-            InlineKeyboardButton('ᴀʙᴏᴜᴛ', callback_data='about')
-        ], [
-            InlineKeyboardButton('📢 ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs', url=ADDLIST_URL)
-        ]]
+        buttons = [
+            [InlineKeyboardButton('ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘs', url=f'http://t.me/{temp.U_NAME}?startgroup=true')],
+            [
+                InlineKeyboardButton('ʜᴇʟᴘ', callback_data='help'),
+                InlineKeyboardButton('ᴀʙᴏᴜᴛ', callback_data='about'),
+            ],
+            [InlineKeyboardButton('📢 ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs', url=ADDLIST_URL)],
+        ]
         reply_markup = InlineKeyboardMarkup(buttons)
         await message.reply_photo(
             photo=random.choice(PICS),
             caption=script.START_TXT.format(message.from_user.mention, temp.U_NAME, temp.B_NAME),
             reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML
+            parse_mode=enums.ParseMode.HTML,
         )
         return
 
@@ -286,7 +326,7 @@ async def start(client, message):
                     f_caption = BATCH_FILE_CAPTION.format(
                         file_name='' if title is None else title,
                         file_size='' if size is None else size,
-                        file_caption='' if f_caption is None else f_caption
+                        file_caption='' if f_caption is None else f_caption,
                     )
                 except Exception as e:
                     logger.exception(e)
@@ -332,7 +372,7 @@ async def start(client, message):
                         f_caption = BATCH_FILE_CAPTION.format(
                             file_name=getattr(media, 'file_name', ''),
                             file_size=getattr(media, 'file_size', ''),
-                            file_caption=getattr(msg, 'caption', '')
+                            file_caption=getattr(msg, 'caption', ''),
                         )
                     except Exception as e:
                         logger.exception(e)
@@ -371,7 +411,7 @@ async def start(client, message):
                 client=client,
                 user_id=message.from_user.id,
                 file_id=file_id,
-                protect_content_flag=protect_content_flag
+                protect_content_flag=protect_content_flag,
             )
             return
         except Exception:
@@ -387,7 +427,7 @@ async def start(client, message):
             f_caption = CUSTOM_FILE_CAPTION.format(
                 file_name='' if title is None else title,
                 file_size='' if size is None else size,
-                file_caption='' if f_caption is None else f_caption
+                file_caption='' if f_caption is None else f_caption,
             )
         except Exception as e:
             logger.exception(e)
@@ -403,7 +443,7 @@ async def start(client, message):
         protect_content_flag=protect_content_flag,
         file_name=title,
         file_size=size,
-        file_caption=f_caption
+        file_caption=f_caption,
     )
 
 
@@ -453,7 +493,6 @@ async def set_auth_channels(client, message: Message):
 
 @Client.on_message(filters.command('channel') & filters.user(ADMINS))
 async def channel_info(bot, message):
-           
     """Send basic information of channel"""
     if isinstance(CHANNELS, (int, str)):
         channels = [CHANNELS]
@@ -468,7 +507,7 @@ async def channel_info(bot, message):
         if chat.username:
             text += '\n@' + chat.username
         else:
-            text += '\n' + chat.title or chat.first_name
+            text += '\n' + (chat.title or chat.first_name)
 
     text += f'\n\n**Total:** {len(CHANNELS)}'
 
@@ -490,6 +529,7 @@ async def log_file(bot, message):
     except Exception as e:
         await message.reply(str(e))
 
+
 @Client.on_message(filters.command('delete') & filters.user(ADMINS))
 async def delete(bot, message):
     """Delete file from database"""
@@ -507,7 +547,7 @@ async def delete(bot, message):
     else:
         await msg.edit('This is not supported file format')
         return
-    
+
     file_id, file_ref = unpack_new_file_id(media.file_id)
 
     result = await Media.collection.delete_one({
@@ -520,15 +560,15 @@ async def delete(bot, message):
         result = await Media.collection.delete_many({
             'file_name': file_name,
             'file_size': media.file_size,
-            'mime_type': media.mime_type
-            })
+            'mime_type': media.mime_type,
+        })
         if result.deleted_count:
             await msg.edit('File is successfully deleted from database')
         else:
             result = await Media.collection.delete_many({
                 'file_name': media.file_name,
                 'file_size': media.file_size,
-                'mime_type': media.mime_type
+                'mime_type': media.mime_type,
             })
             if result.deleted_count:
                 await msg.edit('File is successfully deleted from database')
@@ -579,7 +619,7 @@ async def settings(client, message):
             try:
                 chat = await client.get_chat(grpid)
                 title = chat.title
-            except:
+            except Exception:
                 await message.reply_text("Make sure I'm present in your group!!", quote=True)
                 return
         else:
@@ -595,9 +635,9 @@ async def settings(client, message):
 
     st = await client.get_chat_member(grp_id, userid)
     if (
-            st.status != enums.ChatMemberStatus.ADMINISTRATOR
-            and st.status != enums.ChatMemberStatus.OWNER
-            and str(userid) not in ADMINS
+        st.status != enums.ChatMemberStatus.ADMINISTRATOR
+        and st.status != enums.ChatMemberStatus.OWNER
+        and str(userid) not in ADMINS
     ):
         return
 
@@ -674,9 +714,8 @@ async def settings(client, message):
             reply_markup=reply_markup,
             disable_web_page_preview=True,
             parse_mode=enums.ParseMode.HTML,
-            reply_to_message_id=message.id
+            reply_to_message_id=message.id,
         )
-
 
 
 @Client.on_message(filters.command('set_template'))
@@ -694,7 +733,7 @@ async def save_template(client, message):
             try:
                 chat = await client.get_chat(grpid)
                 title = chat.title
-            except:
+            except Exception:
                 await message.reply_text("Make sure I'm present in your group!!", quote=True)
                 return
         else:
@@ -710,9 +749,9 @@ async def save_template(client, message):
 
     st = await client.get_chat_member(grp_id, userid)
     if (
-            st.status != enums.ChatMemberStatus.ADMINISTRATOR
-            and st.status != enums.ChatMemberStatus.OWNER
-            and str(userid) not in ADMINS
+        st.status != enums.ChatMemberStatus.ADMINISTRATOR
+        and st.status != enums.ChatMemberStatus.OWNER
+        and str(userid) not in ADMINS
     ):
         return
 
