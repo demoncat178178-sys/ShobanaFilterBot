@@ -163,8 +163,8 @@ async def checksub_callback(client, callback_query):
             await callback_query.answer("Failed to send file. Please try again later.", show_alert=True)
     else:
         # Resend subscription prompt
-        links = await create_invite_links(client)
-        btn = [[InlineKeyboardButton("🤖 Join Updates Channel", url=url)] for url in links.values()]
+                btn = [[InlineKeyboardButton("📢 Join Our Channels", url="https://t.me/addlist/ueNwQploRbQ1MGM1")]]
+
         btn.append([InlineKeyboardButton("🔄 Try Again", callback_data=data)])
         await callback_query.edit_message_text(
             text="**❌ You still haven't joined all channels!**\n\nPlease join and press Try Again:",
@@ -230,8 +230,7 @@ async def start(client, message):
         return
 
     if not await is_subscribed(message.from_user.id, client):
-        links = await create_invite_links(client)
-        btn = [[InlineKeyboardButton("🤖 Join Updates Channel", url=url)] for url in links.values()]
+                btn = [[InlineKeyboardButton("📢 Join Our Channels", url="https://t.me/addlist/ueNwQploRbQ1MGM1")]]
 
         if len(message.command) == 2:
             try:
