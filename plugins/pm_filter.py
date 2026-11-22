@@ -64,9 +64,9 @@ async def give_filter(client, message):
         return
 
     if message.chat.type == enums.ChatType.PRIVATE:
-        await _send_pm_search_redirect(message)
-        await _delete_user_search_message(message)
+        await auto_filter(client, message)
         return
+
 
     k = await manual_filters(client, message)
     if k == False:
@@ -416,16 +416,32 @@ async def cb_handler(client: Client, query: CallbackQuery):
             f_caption = f"{files.file_name}"
 
         try:
-            if not await is_subscribed(query.from_user.id, client):
-                invite_links = await create_invite_links(client)
-                first_link = next(iter(invite_links.values()), f"https://t.me/{temp.U_NAME}?start={ident}_{file_id}")
-                await query.answer(url=first_link)
+            if query.message.chat.type == enums.ChatType.PRIVATE:
+                if not await is_subscribed(query.from_user.id, client):
+                    pre = 'checksubp' if ident == 'filep' else 'checksub'
+                    btn = [
+                        [InlineKeyboardButton("📢 Join Our Channels", url="https://t.me/addlist/ueNwQploRbQ1MGM1")],
+                        [InlineKeyboardButton("🔄 Try Again", callback_data=f"{pre}#{file_id}")]
+                    ]
+                    await query.answer()
+                    await client.send_message(
+                        chat_id=query.from_user.id,
+                        text="**ဇာတ်ကားကြည့်ရှုရန် အောက်ပါ Channel များကို အရင် Join ပေးပါ!**",
+                        reply_markup=InlineKeyboardMarkup(btn),
+                        parse_mode=enums.ParseMode.MARKDOWN
+                    )
+                    return
+                await query.answer()
+                await client.send_cached_media(
+                    chat_id=query.from_user.id,
+                    file_id=file_id,
+                    caption=f_caption,
+                    protect_content=True if ident == 'filep' else False
+                )
                 return
-            elif settings['botpm']:
-                await query.answer(url=f"https://t.me/{temp.U_NAME}?start={ident}_{file_id}")
-                return
-            else:
-                await query.answer(url=f"https://t.me/{temp.U_NAME}?start={ident}_{file_id}")
+            await query.answer(url=f"https://t.me/{temp.U_NAME}?start={ident}_{file_id}")
+            return
+
         except UserIsBlocked:
             await query.answer('Unblock the bot mahn !', show_alert=True)
         except PeerIdInvalid:
@@ -476,15 +492,13 @@ async def cb_handler(client: Client, query: CallbackQuery):
     elif query.data == "start":
         buttons = [[
             InlineKeyboardButton('ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘs', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
-            ],[
+        ], [
             InlineKeyboardButton('ʜᴇʟᴘ', callback_data='help'),
             InlineKeyboardButton('ᴀʙᴏᴜᴛ', callback_data='about')
-        ],[
-             InlineKeyboardButton(f'ᴏᴛᴛ ᴜᴘᴅᴀᴛᴇs​', url='https://t.me/new_ott_movies3'),
-             InlineKeyboardButton(f'ᴍᴀɪɴ ᴄʜᴀɴɴᴇʟ', url='https://t.me/mn_movies2')
-         ],[
-            InlineKeyboardButton('ʀᴇᴘᴏ', url='https://github.com/mn-bots/ShobanaFilterBot')
-            ]]
+        ], [
+            InlineKeyboardButton('📢 ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs', url='https://t.me/addlist/ueNwQploRbQ1MGM1')
+        ]]
+
         reply_markup = InlineKeyboardMarkup(buttons)
         await query.message.edit_text(
             text=script.START_TXT.format(query.from_user.mention, temp.U_NAME, temp.B_NAME),
