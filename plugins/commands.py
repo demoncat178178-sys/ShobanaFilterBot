@@ -2,41 +2,37 @@ import os
 import logging
 import random
 import asyncio
+import re
+import json
+import base64
 from Script import script
 from pyrogram import Client, filters, enums
 from pyrogram.errors import ChatAdminRequired, FloodWait
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from database.ia_filterdb import Media, get_file_details, unpack_new_file_id
 from database.users_chats_db import db
 from info import CHANNELS, ADMINS, LOG_CHANNEL, PICS, BATCH_FILE_CAPTION, CUSTOM_FILE_CAPTION, PROTECT_CONTENT, FILE_CHANNELS, FILE_CHANNEL_SENDING_MODE, FILE_AUTO_DELETE_SECONDS
 from utils import get_settings, get_size, is_subscribed, save_group_settings, temp, create_invite_links, get_chat_join_link
 from database.connections_mdb import active_connection
 from plugins.pm_filter import auto_filter
-import re
-import json
-from pyrogram.types import Message
-import base64
+
 logger = logging.getLogger(__name__)
 
 BATCH_FILES = {}
+AUTO_DELETE_SECONDS = 15
+ADDLIST_URL = "https://t.me/addlist/ueNwQploRbQ1MGM1"
 
-# Add these imports at the top of your file
-import random
-
-AUTO_DELETE_SECONDS = 15  
 
 # Helper function to create buttons for specific channel
 async def create_file_buttons(client, sent_message):
     buttons = []
-    
-    # Create message link
+
     if sent_message.chat.username:
         message_link = f"https://t.me/{sent_message.chat.username}/{sent_message.id}"
     else:
         channel_id = str(sent_message.chat.id).replace('-100', '')
         message_link = f"https://t.me/c/{channel_id}/{sent_message.id}"
-    
-    # Create invite link only for this channel
+
     try:
         chat = await client.get_chat(sent_message.chat.id)
         if chat.username:
@@ -50,8 +46,9 @@ async def create_file_buttons(client, sent_message):
     except Exception as e:
         logger.error(f"Error creating invite: {e}")
         buttons.append([InlineKeyboardButton("🔗 View File", url=message_link)])
-    
+
     return InlineKeyboardMarkup(buttons)
+
 
 # Auto-delete helpers
 async def auto_delete_message(client, message, delay):
@@ -61,6 +58,7 @@ async def auto_delete_message(client, message, delay):
     except Exception as e:
         logger.error(f"Error deleting message: {e}")
 
+
 async def auto_delete_file(client, message, delay):
     await asyncio.sleep(delay)
     try:
@@ -69,9 +67,9 @@ async def auto_delete_file(client, message, delay):
     except Exception as e:
         logger.error(f"Error deleting file: {e}")
 
+
 async def send_file_to_user(client, user_id, file_id, protect_content_flag, file_name=None, file_size=None, file_caption=None, requester_mention=None):
     try:
-        # Generate proper caption
         caption = None
         if CUSTOM_FILE_CAPTION:
             try:
@@ -90,7 +88,6 @@ async def send_file_to_user(client, user_id, file_id, protect_content_flag, file
             mention_line = f"Requested by: {requester_mention}"
             caption = f"{mention_line}\n\n{caption}" if caption else mention_line
 
-        # File sending logic with channel support
         if FILE_CHANNEL_SENDING_MODE and FILE_CHANNELS:
             channel_id = random.choice(FILE_CHANNELS)
             sent_message = await client.send_cached_media(
@@ -99,22 +96,16 @@ async def send_file_to_user(client, user_id, file_id, protect_content_flag, file
                 caption=caption,
                 protect_content=protect_content_flag
             )
-            # Schedule auto-delete for channel file
             asyncio.create_task(auto_delete_file(client, sent_message, FILE_AUTO_DELETE_SECONDS))
-            
-            # Create channel-specific buttons
             reply_markup = await create_file_buttons(client, sent_message)
-            
-            # Notify user with auto-delete
             user_msg = await client.send_message(
                 chat_id=user_id,
-                text=f"**Your file is ready!**\n\nJoin the channel to view your file ",
+                text="**Your file is ready!**\n\nJoin the channel to view your file",
                 protect_content=True,
                 reply_markup=reply_markup
             )
             asyncio.create_task(auto_delete_message(client, user_msg, AUTO_DELETE_SECONDS))
         else:
-            # Fallback to direct send with caption
             await client.send_cached_media(
                 chat_id=user_id,
                 file_id=file_id,
@@ -123,7 +114,6 @@ async def send_file_to_user(client, user_id, file_id, protect_content_flag, file
             )
     except Exception as e:
         logger.error(f"File send error: {e}")
-        # Fallback to direct send if channel send fails
         await client.send_cached_media(
             chat_id=user_id,
             file_id=file_id,
@@ -131,22 +121,19 @@ async def send_file_to_user(client, user_id, file_id, protect_content_flag, file
             protect_content=protect_content_flag,
         )
 
+
 @Client.on_callback_query(filters.regex(r'^checksubp#') | filters.regex(r'^checksub#'))
 async def checksub_callback(client, callback_query):
-    # Extract data from callback
     data = callback_query.data
     pre, file_id = data.split('#', 1)
     user_id = callback_query.from_user.id
     protect_content_flag = True if pre == 'checksubp' else False
 
-    # Get file details for caption
     files = await get_file_details(file_id)
     file_details = files[0] if files else None
-    
-    # Check subscription status
+
     if await is_subscribed(user_id, client):
         try:
-            # Use helper function to send file via channels with proper caption
             await send_file_to_user(
                 client=client,
                 user_id=user_id,
@@ -162,50 +149,52 @@ async def checksub_callback(client, callback_query):
             logger.error(f"File send error in callback: {e}")
             await callback_query.answer("Failed to send file. Please try again later.", show_alert=True)
     else:
-        # Resend subscription prompt
-        btn = [[InlineKeyboardButton("📢 Join Our Channels", url="https://t.me/addlist/ueNwQploRbQ1MGM1")]]
+        btn = [
+            [InlineKeyboardButton("📢 Join Our Channels", url=ADDLIST_URL)],
+            [InlineKeyboardButton("🔄 Try Again", callback_data=data)]
+        ]
+        try:
+            await callback_query.edit_message_text(
+                text="**❌ ချန်နယ်များကို Join မလုပ်ရသေးပါ!**\n\nအောက်ပါခလုတ်ကိုနှိပ်ပြီး Join လုပ်ပြီးမှ Try Again ပြန်နှိပ်ပေးပါ။",
+                reply_markup=InlineKeyboardMarkup(btn)
+            )
+        except Exception:
+            await callback_query.answer("❌ ချန်နယ်ကို အရင် Join ပေးပါ!", show_alert=True)
 
-        btn.append([InlineKeyboardButton("🔄 Try Again", callback_data=data)])
-        await callback_query.edit_message_text(
-            text="**❌ You still haven't joined all channels!**\n\nPlease join and press Try Again:",
-            reply_markup=InlineKeyboardMarkup(btn)
-        )
 
 @Client.on_message(filters.command("start") & filters.incoming)
 async def start(client, message):
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-        buttons = [
-              [
-                  InlineKeyboardButton(f'ᴏᴛᴛ ᴜᴘᴅᴀᴛᴇs​', url='https://t.me/movie_ottupdates'),
-                  InlineKeyboardButton(f'ᴍᴀɪɴ ᴄʜᴀɴɴᴇʟ', url='https://t.me/mn_movies2'),
-                  InlineKeyboardButton('ʀᴇᴘᴏ', url='https://github.com/mn-bots/ShobanaFilterBot')
-         ]
-            ]
+        buttons = [[
+            InlineKeyboardButton('📢 ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs', url=ADDLIST_URL)
+        ]]
         reply_markup = InlineKeyboardMarkup(buttons)
-        await message.reply(script.START_TXT.format(message.from_user.mention if message.from_user else message.chat.title, temp.U_NAME, temp.B_NAME), reply_markup=reply_markup)
+        await message.reply(
+            script.START_TXT.format(message.from_user.mention if message.from_user else message.chat.title, temp.U_NAME, temp.B_NAME),
+            reply_markup=reply_markup
+        )
         await asyncio.sleep(2)
         if not await db.get_chat(message.chat.id):
-            total=await client.get_chat_members_count(message.chat.id)
-            await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"))       
+            total = await client.get_chat_members_count(message.chat.id)
+            await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"))
             await db.add_chat(message.chat.id, message.chat.title)
-        return 
+        return
+
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
         await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
+
     if len(message.command) != 2:
         buttons = [[
             InlineKeyboardButton('ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘs', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
-            ],[
+        ], [
             InlineKeyboardButton('ʜᴇʟᴘ', callback_data='help'),
             InlineKeyboardButton('ᴀʙᴏᴜᴛ', callback_data='about')
         ], [
-             InlineKeyboardButton(f'ᴏᴛᴛ ᴜᴘᴅᴀᴛᴇs​', url='https://t.me/movie_ottupdates'),
-             InlineKeyboardButton(f'ᴍᴀɪɴ ᴄʜᴀɴɴᴇʟ', url='https://t.me/mn_movies2')
-        ],[
-            InlineKeyboardButton('ʀᴇᴘᴏ', url='https://github.com/mn-bots/ShobanaFilterBot')
-         ]]
+            InlineKeyboardButton('📢 ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs', url=ADDLIST_URL)
+        ]]
         reply_markup = InlineKeyboardMarkup(buttons)
-        m=await message.reply_text("ShobanaFilterBot") 
+        m = await message.reply_text("MZP Entertainment")
         await asyncio.sleep(1.2)
         await m.delete()
         await message.reply_photo(
@@ -215,6 +204,7 @@ async def start(client, message):
             parse_mode=enums.ParseMode.HTML
         )
         return
+
     if len(message.command) == 2 and message.command[1].startswith('mntgx'):
         payload = message.command[1]
         if '_' in payload:
@@ -230,8 +220,8 @@ async def start(client, message):
         return
 
     if not await is_subscribed(message.from_user.id, client):
-        btn = [[InlineKeyboardButton("📢 Join Our Channels", url="https://t.me/addlist/ueNwQploRbQ1MGM1")]]
-        
+        btn = [[InlineKeyboardButton("📢 Join Our Channels", url=ADDLIST_URL)]]
+
         if len(message.command) == 2:
             try:
                 kk, file_id = message.command[1].split("_", 1)
@@ -239,26 +229,24 @@ async def start(client, message):
                 btn.append([InlineKeyboardButton("🔄 Try Again", callback_data=f"{pre}#{file_id}")])
             except (IndexError, ValueError):
                 btn.append([InlineKeyboardButton("🔄 Try Again", url=f"https://t.me/{temp.U_NAME}?start={message.command[1]}")])
-        
+
         await client.send_message(
             chat_id=message.from_user.id,
-            text="**Please Join My Updates Channel to use this Bot!**",
+            text="**ဇာတ်ကားကြည့်ရှုရန် အောက်ပါ Channel များကို အရင် Join ပေးပါ!**",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.MARKDOWN
         )
         return
+
     if len(message.command) == 2 and message.command[1] in ["subscribe", "error", "okay", "help"]:
         buttons = [[
             InlineKeyboardButton('ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘs', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
-            ],[
+        ], [
             InlineKeyboardButton('ʜᴇʟᴘ', callback_data='help'),
             InlineKeyboardButton('ᴀʙᴏᴜᴛ', callback_data='about')
-        ],[
-             InlineKeyboardButton(f'ᴏᴛᴛ ᴜᴘᴅᴀᴛᴇs​', url='https://t.me/movie_ottupdates'),
-             InlineKeyboardButton(f'ᴍᴀɪɴ ᴄʜᴀɴɴᴇʟ', url='https://t.me/mn_movies2')
-        ],[
-            InlineKeyboardButton('ʀᴇᴘᴏ', url='https://github.com/mn-bots/ShobanaFilterBot')
-         ]]
+        ], [
+            InlineKeyboardButton('📢 ᴊᴏɪɴ ᴏᴜʀ ᴄʜᴀɴɴᴇʟs', url=ADDLIST_URL)
+        ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         await message.reply_photo(
             photo=random.choice(PICS),
@@ -267,37 +255,41 @@ async def start(client, message):
             parse_mode=enums.ParseMode.HTML
         )
         return
-    
+
     data = message.command[1]
     try:
         pre, file_id = data.split('_', 1)
-    except:
+    except Exception:
         file_id = data
         pre = ""
+
     if data.split("-", 1)[0] == "BATCH":
         sts = await message.reply("Please wait")
         file_id = data.split("-", 1)[1]
         msgs = BATCH_FILES.get(file_id)
         if not msgs:
             file = await client.download_media(file_id)
-            try: 
+            try:
                 with open(file) as file_data:
-                    msgs=json.loads(file_data.read())
-            except:
+                    msgs = json.loads(file_data.read())
+            except Exception:
                 await sts.edit("FAILED")
                 return await client.send_message(LOG_CHANNEL, "UNABLE TO OPEN FILE.")
             os.remove(file)
             BATCH_FILES[file_id] = msgs
         for msg in msgs:
             title = msg.get("title")
-            size=get_size(int(msg.get("size", 0)))
-            f_caption=msg.get("caption", "")
+            size = get_size(int(msg.get("size", 0)))
+            f_caption = msg.get("caption", "")
             if BATCH_FILE_CAPTION:
                 try:
-                    f_caption=BATCH_FILE_CAPTION.format(file_name= '' if title is None else title, file_size='' if size is None else size, file_caption='' if f_caption is None else f_caption)
+                    f_caption = BATCH_FILE_CAPTION.format(
+                        file_name='' if title is None else title,
+                        file_size='' if size is None else size,
+                        file_caption='' if f_caption is None else f_caption
+                    )
                 except Exception as e:
                     logger.exception(e)
-                    f_caption=f_caption
             if f_caption is None:
                 f_caption = f"{title}"
             try:
@@ -306,7 +298,7 @@ async def start(client, message):
                     file_id=msg.get("file_id"),
                     caption=f_caption,
                     protect_content=msg.get('protect', False),
-                    )
+                )
             except FloodWait as e:
                 await asyncio.sleep(e.x)
                 logger.warning(f"Floodwait of {e.x} sec.")
@@ -315,34 +307,37 @@ async def start(client, message):
                     file_id=msg.get("file_id"),
                     caption=f_caption,
                     protect_content=msg.get('protect', False),
-                    )
+                )
             except Exception as e:
                 logger.warning(e, exc_info=True)
                 continue
-            await asyncio.sleep(1) 
+            await asyncio.sleep(1)
         await sts.delete()
         return
+
     elif data.split("-", 1)[0] == "DSTORE":
         sts = await message.reply("Please wait")
         b_string = data.split("-", 1)[1]
         decoded = (base64.urlsafe_b64decode(b_string + "=" * (-len(b_string) % 4))).decode("ascii")
         try:
             f_msg_id, l_msg_id, f_chat_id, protect = decoded.split("_", 3)
-        except:
+        except Exception:
             f_msg_id, l_msg_id, f_chat_id = decoded.split("_", 2)
             protect = "/pbatch" if PROTECT_CONTENT else "batch"
-        diff = int(l_msg_id) - int(f_msg_id)
         async for msg in client.iter_messages(int(f_chat_id), int(l_msg_id), int(f_msg_id)):
             if msg.media:
                 media = getattr(msg, msg.media.value)
                 if BATCH_FILE_CAPTION:
                     try:
-                        f_caption=BATCH_FILE_CAPTION.format(file_name=getattr(media, 'file_name', ''), file_size=getattr(media, 'file_size', ''), file_caption=getattr(msg, 'caption', ''))
+                        f_caption = BATCH_FILE_CAPTION.format(
+                            file_name=getattr(media, 'file_name', ''),
+                            file_size=getattr(media, 'file_size', ''),
+                            file_caption=getattr(msg, 'caption', '')
+                        )
                     except Exception as e:
                         logger.exception(e)
                         f_caption = getattr(msg, 'caption', '')
                 else:
-                    media = getattr(msg, msg.media.value)
                     file_name = getattr(media, 'file_name', '')
                     f_caption = getattr(msg, 'caption', file_name)
                 try:
@@ -364,17 +359,14 @@ async def start(client, message):
                 except Exception as e:
                     logger.exception(e)
                     continue
-            await asyncio.sleep(1) 
+            await asyncio.sleep(1)
         return await sts.delete()
-        
 
-    files_ = await get_file_details(file_id)           
+    files_ = await get_file_details(file_id)
     if not files_:
         pre, file_id = ((base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))).decode("ascii")).split("_", 1)
         try:
             protect_content_flag = True if pre == 'filep' else False
-            
-            # Use helper function for consistent file sending
             await send_file_to_user(
                 client=client,
                 user_id=message.from_user.id,
@@ -382,25 +374,28 @@ async def start(client, message):
                 protect_content_flag=protect_content_flag
             )
             return
-        except:
+        except Exception:
             pass
         return await message.reply('No such file exist.')
+
     files = files_[0]
     title = files.file_name
-    size=get_size(files.file_size)
-    f_caption=files.caption
+    size = get_size(files.file_size)
+    f_caption = files.caption
     if CUSTOM_FILE_CAPTION:
         try:
-            f_caption=CUSTOM_FILE_CAPTION.format(file_name= '' if title is None else title, file_size='' if size is None else size, file_caption='' if f_caption is None else f_caption)
+            f_caption = CUSTOM_FILE_CAPTION.format(
+                file_name='' if title is None else title,
+                file_size='' if size is None else size,
+                file_caption='' if f_caption is None else f_caption
+            )
         except Exception as e:
             logger.exception(e)
-            f_caption=f_caption
     if f_caption is None:
         f_caption = f"{files.file_name}"
-    
+
     protect_content_flag = True if pre == 'filep' else False
-    
-    # Use helper function for consistent file sending - FIXED: Removed 'caption' parameter
+
     await send_file_to_user(
         client=client,
         user_id=message.from_user.id,
@@ -410,7 +405,6 @@ async def start(client, message):
         file_size=size,
         file_caption=f_caption
     )
-                    
 
 
 async def build_fsub_details_text(client) -> str:
@@ -431,11 +425,13 @@ async def build_fsub_details_text(client) -> str:
             lines.append(f"\n• ID: <code>{cid}</code>\nLink: unavailable")
     return "\n".join(lines)
 
+
 def is_admin(user) -> bool:
     return (
         user.id in ADMINS or
         (f"@{user.username}" in ADMINS if user.username else False)
     )
+
 
 @Client.on_message(filters.command("fsub") & filters.private)
 async def set_auth_channels(client, message: Message):
@@ -453,6 +449,7 @@ async def set_auth_channels(client, message: Message):
         await message.reply(f"✅ AUTH_CHANNELs updated:\n{channels}")
     except ValueError:
         await message.reply("❌ Invalid channel IDs. Use numeric Telegram chat IDs.")
+
 
 @Client.on_message(filters.command('channel') & filters.user(ADMINS))
 async def channel_info(bot, message):
