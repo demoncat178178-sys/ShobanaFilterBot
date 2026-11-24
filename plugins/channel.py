@@ -3,17 +3,20 @@ from info import CHANNELS
 from database.ia_filterdb import save_file
 from plugins.new_updates import post_new_content_update
 
-media_filter = filters.document | filters.video | filters.audio
+media_filter = filters.document | filters.video | filters.audio | filters.photo
 
 
 @Client.on_message(filters.chat(CHANNELS) & media_filter)
 async def media(bot, message):
     """Media Handler"""
-    for file_type in ("document", "video"):
+    for file_type in ("document", "video", "audio", "photo"):
         media = getattr(message, file_type, None)
         if media is not None:
             break
     else:
+        return
+
+    if file_type == "photo" and not message.caption:
         return
 
     media.file_type = file_type
