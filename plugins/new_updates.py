@@ -27,7 +27,7 @@ CHANNEL_SEND_MODE: str = "grouped"
 
 # ─── Grouped message footer ───────────────────────────────────────────────────
 # Shown at the bottom of every grouped channel post. Edit to match your bot/channel.
-GROUP_SEARCH_TEXT: str = "🔍 Search movies → @malayalam_2022"
+GROUP_SEARCH_TEXT: str = '🔍 ဇာတ်ကားရှာရန် → <a href="https://t.me/addlist/ueNwQploRbQ1MGM1">MZP Entertainment Channels</a>'
 
 LANG_MAP = {
     "mal": "Malayalam",
