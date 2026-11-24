@@ -1,5 +1,3 @@
-#  @MrMNTG @MusammilN
-#please give credits https://github.com/MN-BOTS/ShobanaFilterBot
 import logging
 from struct import pack
 import re
@@ -51,6 +49,7 @@ def _finish_search(files, next_offset, total_results, started_at, return_time):
     if return_time:
         return files, next_offset, total_results, elapsed
     return files, next_offset, total_results
+
 
 USE_MONGO = bool(DATABASE_URI)
 
@@ -329,9 +328,6 @@ if USE_MONGO:
                 try:
                     await col.create_index(spec)
                 except OperationFailure as exc:
-                    # Some providers can return stale/invalid options for existing
-                    # indexes (especially around implicit _id index metadata).
-                    # Do not crash bot startup for non-fatal index option issues.
                     if getattr(exc, 'code', None) == 197 or 'InvalidIndexSpecificationOption' in str(exc):
                         logger.warning("Skipping incompatible index option on %s: %s", col.name, exc)
                         return
@@ -386,34 +382,57 @@ else:
             return SQLCursor(_load_docs_sync(query))
 
 
+def _extract_photo_title(caption) -> str:
+    raw = str(caption or "").strip()
+    lines = []
+    for line in raw.splitlines():
+        cleaned = re.sub(r"https?://\S+", "", line).strip()
+        if cleaned:
+            lines.append(cleaned)
+    title = " - ".join(lines[:2]) if lines else "Photo Post"
+    title = re.sub(r"\s+", " ", title).strip()
+    return title[:80]
+
+
 async def save_file(media):
     """Save file in database"""
 
-    # TODO: Find better way to get same file_id for same media to avoid duplicates
     file_id, file_ref = unpack_new_file_id(media.file_id)
-    file_name = re.sub(r"(_|\-|\.|\+)", " ", str(media.file_name))
+    file_type = getattr(media, "file_type", None)
+    raw_caption = getattr(media, "caption", None)
+    caption_html = raw_caption.html if hasattr(raw_caption, "html") else (str(raw_caption) if raw_caption else None)
+
+    if file_type == "photo":
+        file_name = _extract_photo_title(raw_caption)
+        media.file_name = file_name
+        file_ref = media.file_id
+    else:
+        file_name = re.sub(r"(_|\-|\.|\+)", " ", str(getattr(media, "file_name", "Unknown")))
+
+    file_size = getattr(media, "file_size", 0) or 0
+    mime_type = getattr(media, "mime_type", None) or ("image/jpeg" if file_type == "photo" else None)
 
     if USE_MONGO:
         doc = {
             '_id': file_id,
             'file_ref': file_ref,
             'file_name': file_name,
-            'file_size': media.file_size,
-            'file_type': media.file_type,
-            'mime_type': media.mime_type,
-            'caption': media.caption.html if media.caption else None,
+            'file_size': file_size,
+            'file_type': file_type,
+            'mime_type': mime_type,
+            'caption': caption_html,
             'created_at': time.time(),
         }
         try:
             await _target_collection(file_id).insert_one(doc)
             _SEARCH_CACHE.clear()
         except DuplicateKeyError:
-            logger.warning(f'{getattr(media, "file_name", "NO_FILE")} is already saved in database')
+            logger.warning(f'{file_name} is already saved in database')
             return False, 0
         except Exception:
             logger.exception('Error occurred while saving file in database')
             return False, 2
-        logger.info(f'{getattr(media, "file_name", "NO_FILE")} is saved to database')
+        logger.info(f'{file_name} is saved to database')
         return True, 1
 
     with store.begin() as conn:
@@ -429,10 +448,10 @@ async def save_file(media):
                 "fid": file_id,
                 "fref": file_ref,
                 "fname": file_name,
-                "fsize": media.file_size,
-                "ftype": media.file_type,
-                "mtype": media.mime_type,
-                "caption": media.caption.html if media.caption else None,
+                "fsize": file_size,
+                "ftype": file_type,
+                "mtype": mime_type,
+                "caption": caption_html,
             },
         )
     _SEARCH_CACHE.clear()
@@ -475,7 +494,6 @@ def unpack_new_file_id(new_file_id):
     file_ref = encode_file_ref(decoded.file_reference)
     return file_id, file_ref
 
-# SQL fast-path overrides
 
 def _sql_row_to_doc(row):
     return SQLMediaDoc(
@@ -497,8 +515,11 @@ def _build_mongo_search_filter(query, file_type=None):
     if not query:
         raw_pattern = '.'
     elif ' ' not in query:
-        boundary = r'[\.\+\-_\(\)\[\]\{\}\s]'
-        raw_pattern = rf'(\b|{boundary}){re.escape(query)}(\b|{boundary})'
+        if query.isascii():
+            boundary = r'[\.\+\-_\(\)\[\]\{\}\s]'
+            raw_pattern = rf'(\b|{boundary}){re.escape(query)}(\b|{boundary})'
+        else:
+            raw_pattern = re.escape(query)
     else:
         raw_pattern = r'.*'.join(map(re.escape, query.split()))
 
