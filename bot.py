@@ -1,5 +1,3 @@
-#  @MrMNTG @MusammilN
-#please give credits https://github.com/MN-BOTS/ShobanaFilterBot
 import logging
 import logging.config
 import os
@@ -42,31 +40,27 @@ PORT_CODE = environ.get("PORT", "8080")
 
 
 BOT_COMMANDS = [
-    BotCommand("start", "Start the bot"),
-    BotCommand("movies", "Latest added movies"),
-    BotCommand("series", "Latest added series"),
-    BotCommand("connect", "Connect group to PM"),
-    BotCommand("disconnect", "Disconnect active chat"),
-    BotCommand("connections", "Show your connections"),
-    BotCommand("settings", "Open group settings"),
-    BotCommand("filter", "Create manual filter"),
-    BotCommand("filters", "List filters"),
-    BotCommand("imdb", "Search movie/series info"),
-    BotCommand("mnsearch", "Search movie/series info"),
-    BotCommand("bug", "Send bug report / feedback"),
-    BotCommand("search", "Search from external sources"),
-    BotCommand("deletefiles", "Bulk delete indexed files"),
-    BotCommand("stats", "Show database statistics"),
-    BotCommand("ping", "Check bot ping")
+    BotCommand("start", "Bot စတင်အသုံးပြုရန်"),
+    BotCommand("movies", "နောက်ဆုံးတင်ထားသော ရုပ်ရှင်များ"),
+    BotCommand("series", "နောက်ဆုံးတင်ထားသော ဇာတ်လမ်းတွဲများ"),
+    BotCommand("imdb", "ဇာတ်ကားအချက်အလက် ရှာရန်"),
+    BotCommand("bug", "Admin ထံ ဇာတ်ကားတောင်းဆိုရန် / အကြံပြုရန်"),
+    BotCommand("connect", "Group ကို PM နှင့် ချိတ်ဆက်ရန်"),
+    BotCommand("disconnect", "ချိတ်ဆက်မှု ဖြုတ်ရန်"),
+    BotCommand("connections", "ချိတ်ဆက်ထားသော Group များကြည့်ရန်"),
+    BotCommand("settings", "Group Settings ဖွင့်ရန်"),
+    BotCommand("filter", "Manual Filter ထည့်ရန်"),
+    BotCommand("filters", "Filter စာရင်းကြည့်ရန်"),
+    BotCommand("stats", "Bot Database အခြေအနေကြည့်ရန်"),
+    BotCommand("ping", "Bot မြန်နှုန်းစစ်ရန်"),
 ]
 
 
-
-# ✅ Add this block
 async def preload_auth_channels():
     if not await db.get_auth_channels():
         await db.set_auth_channels(DEFAULT_AUTH_CHANNELS)
         logging.info("Set default AUTH_CHANNELs in DB.")
+
 
 async def keep_alive():
     """Send a request every 111 seconds to keep the bot alive (if required)."""
@@ -93,7 +87,7 @@ class Bot(Client):
             sleep_threshold=5,
         )
 
-    async def kulasthree(self):
+    async def auto_restart(self):
         while True:
             await asyncio.sleep(24 * 60 * 60)
             logging.info("🔄 Bot is restarting")
@@ -112,7 +106,6 @@ class Bot(Client):
         temp.B_NAME = me.first_name
         self.username = '@' + me.username
 
-        # ✅ preload auth channels from info.py if DB is empty
         await preload_auth_channels()
 
         logging.info(f"{me.first_name} running on Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
@@ -121,15 +114,15 @@ class Bot(Client):
         logging.info("Bot commands synced successfully.")
         await self.send_message(chat_id=LOG_CHANNEL, text=script.RESTART_TXT)
 
-        print("mntg4u</>")
+        print("MZP Entertainment Bot Started!")
 
-        tz = pytz.timezone('Asia/Kolkata')
-        today = date.today()
+        tz = pytz.timezone('Asia/Yangon')
         now = datetime.now(tz)
-        time = now.strftime("%H:%M:%S %p")
-        await self.send_message(chat_id=LOG_CHANNEL, text=script.RESTART_GC_TXT.format(today, time))
+        today = now.date()
+        current_time = now.strftime("%I:%M:%S %p")
+        await self.send_message(chat_id=LOG_CHANNEL, text=script.RESTART_GC_TXT.format(today, current_time))
 
-        asyncio.create_task(self.kulasthree())
+        asyncio.create_task(self.auto_restart())
         asyncio.create_task(keep_alive())
         asyncio.create_task(run_daily_summary(self))
 
