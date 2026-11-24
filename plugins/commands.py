@@ -39,7 +39,13 @@ logger = logging.getLogger(__name__)
 
 BATCH_FILES = {}
 AUTO_DELETE_SECONDS = 15
+POST_AUTO_DELETE_SECONDS = 300  # 5 minutes
 ADDLIST_URL = "https://t.me/addlist/ueNwQploRbQ1MGM1"
+DELETE_NOTICE_TEXT = (
+    "⏳ <b>သတိပြုရန်:</b> ဤပို့စ်သည် <b>၅ မိနစ်</b> အကြာတွင် အလိုအလျောက် ဖျက်သွားပါမည်။\n\n"
+    "📌 နောက်မှပြန်ကြည့်လိုပါက မိမိ၏ <b>Saved Messages</b> (သို့) တခြားနေရာသို့ "
+    "<b>Forward</b> လုပ်ပြီး သိမ်းထားပေးပါ။"
+)
 
 
 # Helper function to create buttons for specific channel
@@ -89,6 +95,32 @@ async def auto_delete_file(client, message, delay):
         logger.error(f"Error deleting file: {e}")
 
 
+async def auto_delete_post_and_notice(sent_media_msg, notice_msg, delay=POST_AUTO_DELETE_SECONDS):
+    await asyncio.sleep(delay)
+    for msg in (sent_media_msg, notice_msg):
+        if msg is None:
+            continue
+        try:
+            await msg.delete()
+        except Exception as e:
+            logger.error(f"Error auto-deleting message: {e}")
+
+
+async def send_delete_notice_and_schedule(client, sent_media_msg, delay=POST_AUTO_DELETE_SECONDS):
+    notice_msg = None
+    try:
+        notice_msg = await client.send_message(
+            chat_id=sent_media_msg.chat.id,
+            text=DELETE_NOTICE_TEXT,
+            parse_mode=enums.ParseMode.HTML,
+            reply_to_message_id=sent_media_msg.id,
+            disable_web_page_preview=True,
+        )
+    except Exception as e:
+        logger.error(f"Error sending auto-delete notice: {e}")
+    asyncio.create_task(auto_delete_post_and_notice(sent_media_msg, notice_msg, delay))
+
+
 async def send_file_to_user(
     client,
     user_id,
@@ -98,32 +130,36 @@ async def send_file_to_user(
     file_size=None,
     file_caption=None,
     requester_mention=None,
+    file_type=None,
 ):
-    try:
-        caption = None
-        if CUSTOM_FILE_CAPTION:
-            try:
-                caption = CUSTOM_FILE_CAPTION.format(
-                    file_name=file_name if file_name else "",
-                    file_size=file_size if file_size else "",
-                    file_caption=file_caption if file_caption else "",
-                )
-            except Exception as e:
-                logger.error(f"Error formatting caption: {e}")
-                caption = file_caption if file_caption else file_name
-        else:
+    caption = None
+    if file_type == "photo":
+        caption = file_caption if file_caption else file_name
+    elif CUSTOM_FILE_CAPTION:
+        try:
+            caption = CUSTOM_FILE_CAPTION.format(
+                file_name=file_name if file_name else "",
+                file_size=file_size if file_size else "",
+                file_caption=file_caption if file_caption else "",
+            )
+        except Exception as e:
+            logger.error(f"Error formatting caption: {e}")
             caption = file_caption if file_caption else file_name
+    else:
+        caption = file_caption if file_caption else file_name
 
-        if requester_mention:
-            mention_line = f"Requested by: {requester_mention}"
-            caption = f"{mention_line}\n\n{caption}" if caption else mention_line
+    if requester_mention and file_type != "photo":
+        mention_line = f"Requested by: {requester_mention}"
+        caption = f"{mention_line}\n\n{caption}" if caption else mention_line
 
+    try:
         if FILE_CHANNEL_SENDING_MODE and FILE_CHANNELS:
             channel_id = random.choice(FILE_CHANNELS)
             sent_message = await client.send_cached_media(
                 chat_id=channel_id,
                 file_id=file_id,
                 caption=caption,
+                parse_mode=enums.ParseMode.HTML,
                 protect_content=protect_content_flag,
             )
             asyncio.create_task(auto_delete_file(client, sent_message, FILE_AUTO_DELETE_SECONDS))
@@ -136,20 +172,23 @@ async def send_file_to_user(
             )
             asyncio.create_task(auto_delete_message(client, user_msg, AUTO_DELETE_SECONDS))
         else:
-            await client.send_cached_media(
+            sent_media = await client.send_cached_media(
                 chat_id=user_id,
                 file_id=file_id,
                 caption=caption,
+                parse_mode=enums.ParseMode.HTML,
                 protect_content=protect_content_flag,
             )
+            await send_delete_notice_and_schedule(client, sent_media, POST_AUTO_DELETE_SECONDS)
     except Exception as e:
         logger.error(f"File send error: {e}")
-        await client.send_cached_media(
+        sent_media = await client.send_cached_media(
             chat_id=user_id,
             file_id=file_id,
             caption=caption,
             protect_content=protect_content_flag,
         )
+        await send_delete_notice_and_schedule(client, sent_media, POST_AUTO_DELETE_SECONDS)
 
 
 @Client.on_callback_query(filters.regex(r'^checksubp#') | filters.regex(r'^checksub#'))
@@ -164,15 +203,22 @@ async def checksub_callback(client, callback_query):
 
     if await is_subscribed(user_id, client):
         try:
+            f_type = getattr(file_details, 'file_type', None) if file_details else None
+            send_id = (
+                file_details.file_ref
+                if f_type == 'photo' and getattr(file_details, 'file_ref', None)
+                else file_id
+            )
             await send_file_to_user(
                 client=client,
                 user_id=user_id,
-                file_id=file_id,
+                file_id=send_id,
                 protect_content_flag=protect_content_flag,
                 file_name=file_details.file_name if file_details else None,
                 file_size=get_size(file_details.file_size) if file_details else None,
                 file_caption=file_details.caption if file_details else None,
                 requester_mention=callback_query.from_user.mention if callback_query.from_user else None,
+                file_type=f_type,
             )
             await callback_query.message.delete()
         except Exception as e:
@@ -404,8 +450,8 @@ async def start(client, message):
 
     files_ = await get_file_details(file_id)
     if not files_:
-        pre, file_id = ((base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))).decode("ascii")).split("_", 1)
         try:
+            pre, file_id = ((base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))).decode("ascii")).split("_", 1)
             protect_content_flag = True if pre == 'filep' else False
             await send_file_to_user(
                 client=client,
@@ -422,28 +468,23 @@ async def start(client, message):
     title = files.file_name
     size = get_size(files.file_size)
     f_caption = files.caption
-    if CUSTOM_FILE_CAPTION:
-        try:
-            f_caption = CUSTOM_FILE_CAPTION.format(
-                file_name='' if title is None else title,
-                file_size='' if size is None else size,
-                file_caption='' if f_caption is None else f_caption,
-            )
-        except Exception as e:
-            logger.exception(e)
-    if f_caption is None:
-        f_caption = f"{files.file_name}"
-
+    f_type = getattr(files, 'file_type', None)
+    send_id = (
+        files.file_ref
+        if f_type == 'photo' and getattr(files, 'file_ref', None)
+        else file_id
+    )
     protect_content_flag = True if pre == 'filep' else False
 
     await send_file_to_user(
         client=client,
         user_id=message.from_user.id,
-        file_id=file_id,
+        file_id=send_id,
         protect_content_flag=protect_content_flag,
         file_name=title,
         file_size=size,
         file_caption=f_caption,
+        file_type=f_type,
     )
 
 
@@ -540,7 +581,7 @@ async def delete(bot, message):
         await message.reply('Reply to file with /delete which you want to delete', quote=True)
         return
 
-    for file_type in ("document", "video", "audio"):
+    for file_type in ("document", "video", "audio", "photo"):
         media = getattr(reply, file_type, None)
         if media is not None:
             break
@@ -556,19 +597,19 @@ async def delete(bot, message):
     if result.deleted_count:
         await msg.edit('File is successfully deleted from database')
     else:
-        file_name = re.sub(r"(_|\-|\.|\+)", " ", str(media.file_name))
+        file_name = re.sub(r"(_|\-|\.|\+)", " ", str(getattr(media, 'file_name', '')))
         result = await Media.collection.delete_many({
             'file_name': file_name,
-            'file_size': media.file_size,
-            'mime_type': media.mime_type,
+            'file_size': getattr(media, 'file_size', 0),
+            'mime_type': getattr(media, 'mime_type', None),
         })
         if result.deleted_count:
             await msg.edit('File is successfully deleted from database')
         else:
             result = await Media.collection.delete_many({
-                'file_name': media.file_name,
-                'file_size': media.file_size,
-                'mime_type': media.mime_type,
+                'file_name': getattr(media, 'file_name', ''),
+                'file_size': getattr(media, 'file_size', 0),
+                'mime_type': getattr(media, 'mime_type', None),
             })
             if result.deleted_count:
                 await msg.edit('File is successfully deleted from database')
@@ -601,7 +642,7 @@ async def delete_all_index(bot, message):
 @Client.on_callback_query(filters.regex(r'^autofilter_delete'))
 async def delete_all_index_confirm(bot, message):
     await Media.collection.drop()
-    await message.answer('Piracy Is Crime')
+    await message.answer('MZP Entertainment')
     await message.message.edit('Succesfully Deleted All The Indexed Files.')
 
 
