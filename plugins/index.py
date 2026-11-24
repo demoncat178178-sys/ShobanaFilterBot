@@ -35,6 +35,7 @@ MEDIA_TYPES = (
     enums.MessageMediaType.VIDEO,
     enums.MessageMediaType.AUDIO,
     enums.MessageMediaType.DOCUMENT,
+    enums.MessageMediaType.PHOTO,
 )
 
 
@@ -60,21 +61,9 @@ async def _safe_edit(msg, text, reply_markup=None):
 
 
 async def _flood_safe(coro_fn, _max_retries: int = 10, status_msg=None):
-    """
-    Retry a coroutine *factory* (callable that returns a new coroutine each
-    time it is called) transparently on:
-      • FloodWait  – edit status_msg with countdown, sleep, then auto-resume
-      • OSError / ConnectionError (Connection lost, etc.) – exponential backoff
-
-    ⚠️  IMPORTANT: pass a callable, NOT an already-created coroutine.
-        ✅  _flood_safe(lambda: bot.get_messages(chat, ids))
-        ❌  _flood_safe(bot.get_messages(chat, ids))   ← causes "cannot reuse
-                                                          already awaited coroutine"
-    """
     attempt = 0
     while True:
         try:
-            # Call the factory to get a *fresh* coroutine on every attempt.
             return await coro_fn()
         except FloodWait as fw:
             wait_sec = fw.value + 1
@@ -93,7 +82,6 @@ async def _flood_safe(coro_fn, _max_retries: int = 10, status_msg=None):
                     status_msg,
                     "⚡ <b>Resuming indexing…</b>\n\nFloodWait is over.",
                 )
-            # Reset attempt counter after a FloodWait – the connection is fine.
             attempt = 0
         except (OSError, ConnectionError, asyncio.TimeoutError) as e:
             attempt += 1
@@ -113,24 +101,14 @@ async def _flood_safe(coro_fn, _max_retries: int = 10, status_msg=None):
 async def _fetch_worker(bot, chat, id_queue: asyncio.Queue,
                         msg_queue: asyncio.Queue, sem: asyncio.Semaphore,
                         status_msg=None):
-    """
-    Pull a chunk of IDs from *id_queue*, fetch the messages, push the list
-    onto *msg_queue*. Runs FETCH_WORKERS copies concurrently.
-    status_msg is the Telegram message used to show FloodWait notices.
-    """
     while True:
         chunk_ids = await id_queue.get()
-        if chunk_ids is None:          # sentinel
+        if chunk_ids is None:
             id_queue.task_done()
-            await msg_queue.put(None)  # forward sentinel to consumer
+            await msg_queue.put(None)
             return
         try:
             async with sem:
-                # ── FIX: pass a lambda so _flood_safe can create a *new*
-                #    coroutine on every retry attempt.  Passing the coroutine
-                #    object directly caused "cannot reuse already awaited
-                #    coroutine" because a coroutine is exhausted after the
-                #    first await, even when it raises an exception. ──────────
                 messages = await _flood_safe(
                     lambda ids=chunk_ids: bot.get_messages(chat, ids),
                     status_msg=status_msg,
@@ -139,14 +117,12 @@ async def _fetch_worker(bot, chat, id_queue: asyncio.Queue,
                 messages = [messages]
             await msg_queue.put(messages)
         except (OSError, ConnectionError, asyncio.TimeoutError) as e:
-            # _flood_safe exhausted retries – log and skip this chunk rather
-            # than crashing the whole worker.
             logger.error("Fetch permanently failed for chunk (ids %s…): %s",
                          chunk_ids[:3], e)
-            await msg_queue.put([])    # push empty so consumer doesn't stall
+            await msg_queue.put([])
         except Exception as e:
             logger.exception("Fetch error: %s", e)
-            await msg_queue.put([])    # push empty so consumer doesn't stall
+            await msg_queue.put([])
         finally:
             id_queue.task_done()
 
@@ -161,6 +137,8 @@ async def _classify(message):
         return None, 'no_media'
     if message.media not in MEDIA_TYPES:
         return None, 'unsupported'
+    if message.media == enums.MessageMediaType.PHOTO and not message.caption:
+        return None, 'unsupported'
     media = getattr(message, message.media.value, None)
     if not media:
         return None, 'unsupported'
@@ -170,14 +148,6 @@ async def _classify(message):
 
 
 async def _save_concurrently(eligible):
-    """
-    Save a list of media objects with SAVE_WORKERS concurrency.
-    Compatible with both MongoDB (motor) and PostgreSQL (asyncpg / SQLAlchemy
-    async) backends – save_file must return (saved: bool, code: int) where:
-        saved=True          → new record written
-        saved=False, code=0 → duplicate
-        saved=False, code=2 → error
-    """
     sem = asyncio.Semaphore(SAVE_WORKERS)
 
     async def _one(media):
@@ -185,10 +155,8 @@ async def _save_concurrently(eligible):
             try:
                 return await save_file(media)
             except Exception as exc:
-                # Catch DB-level exceptions (MotorError, asyncpg exceptions,
-                # SQLAlchemy exceptions, etc.) uniformly.
                 logger.exception("save_file raised unexpectedly: %s", exc)
-                return exc   # treat as exception result in gather
+                return exc
 
     results = await asyncio.gather(*[_one(m) for m in eligible],
                                    return_exceptions=True)
@@ -210,14 +178,6 @@ async def _save_concurrently(eligible):
 # ─── main indexing loop ───────────────────────────────────────────────────────
 
 async def index_files_to_db(lst_msg_id: int, chat, msg, bot):
-    """
-    Fastest possible indexing:
-      • Producer: FETCH_WORKERS goroutines pump get_messages concurrently.
-      • Consumer: main loop drains msg_queue and saves in bulk.
-      • Progress: updated on a wall-clock timer, never blocking the hot path.
-    Works with both MongoDB (motor) and PostgreSQL (asyncpg/SQLAlchemy) via
-    the save_file abstraction in database/ia_filterdb.
-    """
     total_files = duplicate = errors = deleted = no_media = unsupported = 0
 
     async with lock:
@@ -231,12 +191,10 @@ async def index_files_to_db(lst_msg_id: int, chat, msg, bot):
             logger.info("Indexing %d messages from %s (ids %d→%d)",
                         total_ids, chat, lst_msg_id, start_id)
 
-            # ── queues ────────────────────────────────────────────────────────
             id_queue  = asyncio.Queue(maxsize=QUEUE_MAXSIZE * FETCH_WORKERS)
             msg_queue = asyncio.Queue(maxsize=QUEUE_MAXSIZE)
             sem       = asyncio.Semaphore(FETCH_WORKERS)
 
-            # ── start fetch workers ───────────────────────────────────────────
             workers = [
                 asyncio.create_task(
                     _fetch_worker(bot, chat, id_queue, msg_queue, sem,
@@ -245,17 +203,14 @@ async def index_files_to_db(lst_msg_id: int, chat, msg, bot):
                 for _ in range(FETCH_WORKERS)
             ]
 
-            # ── enqueue all IDs in TG_CHUNK slices ───────────────────────────
             async def _enqueue():
                 for i in range(0, total_ids, TG_CHUNK):
                     await id_queue.put(all_ids[i:i + TG_CHUNK])
-                # send one sentinel per worker
                 for _ in range(FETCH_WORKERS):
                     await id_queue.put(None)
 
             enqueue_task = asyncio.create_task(_enqueue())
 
-            # ── consume ───────────────────────────────────────────────────────
             last_edit    = time.monotonic()
             done_workers = 0
 
@@ -277,11 +232,10 @@ async def index_files_to_db(lst_msg_id: int, chat, msg, bot):
                 except asyncio.TimeoutError:
                     continue
 
-                if batch is None:           # one worker finished
+                if batch is None:
                     done_workers += 1
                     continue
 
-                # classify
                 eligible = []
                 for message in batch:
                     media, key = await _classify(message)
@@ -296,14 +250,12 @@ async def index_files_to_db(lst_msg_id: int, chat, msg, bot):
 
                 current += len(batch)
 
-                # save
                 if eligible:
                     tf, dup, err = await _save_concurrently(eligible)
                     total_files += tf
                     duplicate   += dup
                     errors      += err
 
-                # progress (timer-gated)
                 now = time.monotonic()
                 if now - last_edit >= PROGRESS_EVERY:
                     pct = int(current / max(total_ids, 1) * 100)
@@ -317,7 +269,7 @@ async def index_files_to_db(lst_msg_id: int, chat, msg, bot):
                     )
                     last_edit = now
 
-            await enqueue_task          # make sure enqueuer finished cleanly
+            await enqueue_task
             await asyncio.gather(*workers, return_exceptions=True)
 
         except Exception as e:
